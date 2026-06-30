@@ -170,6 +170,10 @@ export function toggleRecording(canvas, fps) {
   if (recording) stop(); else start(canvas, fps);
 }
 
+export function startRecording(canvas, fps) { start(canvas, fps || 60); }
+export function stopRecording() { stop(); }
+export function isRecording() { return recording; }
+
 // --- Snapshot (still PNG of the current canvas) ---------------------------
 // On a WebGL canvas with preserveDrawingBuffer:false, toBlob() only returns
 // pixels if read in the same task as the draw. So P just flags a request and

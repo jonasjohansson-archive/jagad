@@ -26,7 +26,9 @@ import { initPathMovement, initActorOnPath, updateFugitiveMovementPath, updateCh
 import { initActorWire, ActorWire, updateWireBillboards } from "./systems/actorWire.js?v=149";
 import { triggerShake, updateShake } from "./systems/cameraShake.js";
 import { setupLights, toneMappingOptions } from "./rendering/lights.js?v=149";
-import { initRecorder, flushSnapshot } from "./systems/recorder.js?v=2";
+import { initRecorder, flushSnapshot, startRecording, stopRecording, isRecording } from "./systems/recorder.js?v=3";
+import { initAutoplay, setAutoplayEnabled, isAutoplayEnabled, getAutoplayDirection, updateAutoplay } from "./systems/autoplay.js?v=1";
+import { initCaptureCamera, setOrbitEnabled, isOrbitEnabled, updateCaptureCamera, saveView, recallView, listViews } from "./rendering/captureCamera.js?v=1";
 
 // lil-gui loaded via script tag in index.html
 const GUI = window.lil.GUI;
@@ -508,6 +510,11 @@ const loadingProgress = {
 
   function getChaserInputDirection(chaserIndex) {
     if (chaserIndex >= CHASER_CONTROLS.length) return { x: 0, z: 0, hasInput: false };
+    // Self-play AI takes over the input seam when enabled (capture mode)
+    if (isAutoplayEnabled()) {
+      const ai = getAutoplayDirection(chaserIndex);
+      if (ai) return ai;
+    }
     const ctrl = CHASER_CONTROLS[chaserIndex];
 
     let dx = 0;
@@ -791,6 +798,11 @@ const loadingProgress = {
         break;
 
       case "GAME_OVER":
+        // End of a self-played capture sequence: stop the AI and finish the recording
+        if (isAutoplayEnabled()) {
+          setAutoplayEnabled(false);
+          if (isRecording()) setTimeout(() => stopRecording(), 1500); // let the win/lose beat land
+        }
         sendServerEvent({ type: "gameEnd", score: STATE.playerScore, capturedCount: STATE.capturedCount, gameTime: Math.round(90 - (STATE.gameTimerRemaining || 0)), allCaught: STATE.capturedCount >= fugitives.length });
         stopHelicopterSound(); // Stop helicopter loop
         STATE.gameOver = true;
@@ -2470,6 +2482,10 @@ const loadingProgress = {
       renderer.render(scene, camera);
     }
 
+    // Capture tools: keep orbit controls + self-play AI ticking
+    updateCaptureCamera();
+    updateAutoplay(dt);
+
     // Grab a still here (buffer is fresh) if P was pressed
     flushSnapshot(canvas);
 
@@ -3397,6 +3413,94 @@ const loadingProgress = {
     }
 
     setupCameras(levelCenter, horizontalSize);
+
+    // Capture tools (free-orbit camera + self-play AI), gated behind ?capture
+    initCaptureCamera({ camera: perspCamera, renderer, getLevelCenter });
+    initAutoplay({ STATE, settings, chasers, fugitives, boostStates, triggerBoost, playSFX });
+
+    if (new URLSearchParams(window.location.search).has("capture")) {
+      buildCaptureHUD();
+      // Debug handle for inspection during capture
+      window.__jagadCapture = {
+        chasers, fugitives,
+        state: () => STATE.gameState,
+        autoplay: () => isAutoplayEnabled(),
+        recording: () => isRecording(),
+        play: () => playSequence(),
+      };
+    }
+
+    // Reset to a clean round, mark the chasers ready (starts the countdown),
+    // hand control to the self-play AI, and record the whole sequence.
+    function playSequence() {
+      resetGame();
+      for (const c of chasers) { c.ready = false; c.active = false; }
+      STATE.firstPlayerIndex = -1;
+      setGameState("PRE_GAME");
+      const n = Math.min(chasers.length, 4);
+      for (let i = 0; i < n; i++) markChaserReady(i); // first ready -> STARTING -> PLAYING
+      setAutoplayEnabled(true);
+      if (!isRecording()) startRecording(renderer.domElement, 60);
+      // Failsafe: STARTING->PLAYING normally fires on the countdown video's
+      // 'ended' event; if that doesn't arrive (e.g. video blocked), force it so
+      // the sequence never stalls.
+      const countdownMs = (settings.countdownDuration || 4) * 1000 + 1500;
+      setTimeout(() => { if (STATE.gameState === "STARTING") setGameState("PLAYING"); }, countdownMs);
+    }
+
+    function buildCaptureHUD() {
+      const panel = document.createElement("div");
+      panel.style.cssText = [
+        "position:fixed", "top:14px", "left:16px", "z-index:99999",
+        "display:flex", "flex-direction:column", "gap:8px",
+        "font:600 13px/1 system-ui,sans-serif", "pointer-events:auto",
+      ].join(";");
+      const mkBtn = (label) => {
+        const b = document.createElement("button");
+        b.textContent = label;
+        b.style.cssText = [
+          "padding:9px 13px", "border:0", "border-radius:999px", "cursor:pointer",
+          "background:rgba(0,0,0,0.6)", "color:#fff", "font:inherit",
+          "backdrop-filter:blur(4px)", "-webkit-backdrop-filter:blur(4px)", "text-align:left",
+        ].join(";");
+        return b;
+      };
+
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:8px";
+
+      const playBtn = mkBtn("▶ Play sequence");
+      playBtn.addEventListener("click", () => { playSequence(); playBtn.blur(); });
+
+      const orbitBtn = mkBtn("🎥 Orbit: off");
+      orbitBtn.addEventListener("click", () => {
+        const on = !isOrbitEnabled();
+        if (on) { switchCamera("perspective"); }
+        setOrbitEnabled(on);
+        orbitBtn.textContent = on ? "🎥 Orbit: on" : "🎥 Orbit: off";
+        orbitBtn.style.background = on ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)";
+        orbitBtn.blur();
+      });
+
+      const saveBtn = mkBtn("＋ Save view");
+      const chips = document.createElement("div");
+      chips.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;max-width:260px";
+      const refreshChips = () => {
+        chips.innerHTML = "";
+        listViews().forEach((_, i) => {
+          const c = mkBtn(`View ${i + 1}`);
+          c.style.padding = "6px 10px";
+          c.addEventListener("click", () => { switchCamera("perspective"); setOrbitEnabled(true); recallView(i); orbitBtn.textContent = "🎥 Orbit: on"; orbitBtn.style.background = "rgba(80,140,255,0.85)"; c.blur(); });
+          chips.appendChild(c);
+        });
+      };
+      saveBtn.addEventListener("click", () => { saveView(); refreshChips(); saveBtn.blur(); });
+      refreshChips();
+
+      row.append(playBtn, orbitBtn, saveBtn);
+      panel.append(row, chips);
+      document.body.appendChild(panel);
+    }
 
     // If GLB contains cameras, add them to the GUI dropdown and use MainCamera if found
     if (glbCameras.length > 0) {
