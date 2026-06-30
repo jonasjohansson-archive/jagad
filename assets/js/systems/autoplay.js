@@ -11,9 +11,16 @@
 
 let _ctx = null;
 let _enabled = false;
+let _manual = -1;    // chaser index the human drives (AI leaves it alone), -1 = none
 const _axis = {};    // chaserIndex -> "x" | "z" (current pursuit axis)
 const _target = {};  // chaserIndex -> fugitive index
 const _boostCd = {}; // chaserIndex -> seconds until next boost allowed
+
+// Hand one chaser to the player; the AI drives the rest. -1 / null = AI drives all.
+export function setManualChaser(index) {
+  _manual = (index == null) ? -1 : index;
+}
+export function getManualChaser() { return _manual; }
 
 export function initAutoplay(ctx) {
   _ctx = ctx; // { STATE, settings, chasers, fugitives, boostStates, triggerBoost, playSFX }
@@ -72,6 +79,8 @@ export function getAutoplayDirection(chaserIndex) {
   const { STATE, chasers } = _ctx;
   if (STATE.gameState !== "PLAYING") return null;
 
+  if (chaserIndex === _manual) return null; // human drives this one
+
   const chaser = chasers[chaserIndex];
   if (!chaser || !chaser.mesh) return null;
 
@@ -106,6 +115,7 @@ export function updateAutoplay(dt) {
   if (STATE.gameState !== "PLAYING") return;
 
   for (let i = 0; i < chasers.length; i++) {
+    if (i === _manual) continue; // player handles their own boost
     const chaser = chasers[i];
     if (!chaser || !chaser.active) continue;
     _boostCd[i] = (_boostCd[i] || 0) - dt;

@@ -23,11 +23,11 @@ import { setupGlassMeshes, updateGlassCanvas, updateGlassPosition, updateGlassMa
 import { initTemplateVars, applyStartingText, applyPlayingText, applyHighScoreText, applyGameOverText } from "./game/templateVars.js?v=149";
 import { initProjection, initProjectionPlane, updateProjectionForState, loadProjectionImage, updateProjectionPump, handleProjectionStateChange, applyProjectionMaterial } from "./rendering/projection.js?v=149";
 import { initPathMovement, initActorOnPath, updateFugitiveMovementPath, updateChaserMovementPath } from "./game/pathMovement.js?v=149";
-import { initActorWire, ActorWire, updateWireBillboards } from "./systems/actorWire.js?v=149";
+import { initActorWire, ActorWire, updateWireBillboards, setBillboardFaceCamera } from "./systems/actorWire.js?v=150";
 import { triggerShake, updateShake } from "./systems/cameraShake.js";
 import { setupLights, toneMappingOptions } from "./rendering/lights.js?v=149";
 import { initRecorder, flushSnapshot, startRecording, stopRecording, isRecording } from "./systems/recorder.js?v=3";
-import { initAutoplay, setAutoplayEnabled, isAutoplayEnabled, getAutoplayDirection, updateAutoplay } from "./systems/autoplay.js?v=1";
+import { initAutoplay, setAutoplayEnabled, isAutoplayEnabled, getAutoplayDirection, updateAutoplay, setManualChaser } from "./systems/autoplay.js?v=2";
 import { initCaptureCamera, setOrbitEnabled, isOrbitEnabled, updateCaptureCamera, saveView, recallView, listViews, setCarCam, setCarMode, isCarCamEnabled, updateCarCam } from "./rendering/captureCamera.js?v=2";
 
 // lil-gui loaded via script tag in index.html
@@ -2499,6 +2499,8 @@ const loadingProgress = {
         updateCarCam(ch.mesh.position, fX, fZ, STATE.horizontalSize);
       }
     }
+    // Heads face the camera in capture views (car cam / orbit), flat otherwise
+    setBillboardFaceCamera((isCarCamEnabled() || isOrbitEnabled()) ? perspCamera : null);
 
     // Grab a still here (buffer is fresh) if P was pressed
     flushSnapshot(canvas);
@@ -3538,20 +3540,36 @@ const loadingProgress = {
       });
       const carPick = document.createElement("div");
       carPick.style.cssText = "display:flex;gap:4px";
+      const CONTROLS = ["WASD", "TFGH", "IJKL", "Arrows"];
+      let driveManual = false;
+      const driveBtn = mkBtn("🎮 Drive this car: off");
+      const hint = document.createElement("div");
+      hint.style.cssText = "color:#fff;opacity:0.8;font:500 11px/1.4 system-ui;max-width:280px";
+      const refreshHint = () => {
+        hint.textContent = driveManual ? `You drive C${STATE.carCamIndex + 1} with ${CONTROLS[STATE.carCamIndex]} (boost = ${["E","Y","O","Enter"][STATE.carCamIndex]}); AI drives the rest.` : "";
+      };
+      driveBtn.addEventListener("click", () => {
+        driveManual = !driveManual;
+        setManualChaser(driveManual ? STATE.carCamIndex : null);
+        driveBtn.textContent = driveManual ? "🎮 Drive this car: on" : "🎮 Drive this car: off";
+        driveBtn.style.background = driveManual ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)";
+        refreshHint(); driveBtn.blur();
+      });
       for (let i = 0; i < 4; i++) {
         const cb = mkBtn(`C${i + 1}`);
         cb.style.padding = "6px 9px";
         cb.style.background = i === STATE.carCamIndex ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)";
         cb.addEventListener("click", () => {
           STATE.carCamIndex = i;
+          if (driveManual) setManualChaser(i);
           [...carPick.children].forEach((c, j) => c.style.background = j === i ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)");
-          cb.blur();
+          refreshHint(); cb.blur();
         });
         carPick.appendChild(cb);
       }
-      carRow.append(carBtn, modeBtn, carPick);
+      carRow.append(carBtn, modeBtn, carPick, driveBtn);
 
-      panel.append(row, carRow, chips);
+      panel.append(row, carRow, hint, chips);
       document.body.appendChild(panel);
     }
 
