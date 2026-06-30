@@ -26,7 +26,7 @@ import { initPathMovement, initActorOnPath, updateFugitiveMovementPath, updateCh
 import { initActorWire, ActorWire, updateWireBillboards } from "./systems/actorWire.js?v=149";
 import { triggerShake, updateShake } from "./systems/cameraShake.js";
 import { setupLights, toneMappingOptions } from "./rendering/lights.js?v=149";
-import { initRecorder, flushSnapshot } from "./systems/recorder.js?v=1";
+import { initRecorder, flushSnapshot } from "./systems/recorder.js?v=2";
 
 // lil-gui loaded via script tag in index.html
 const GUI = window.lil.GUI;
