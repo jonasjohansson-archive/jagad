@@ -10,7 +10,16 @@ import { SelectivePixelPass } from "../lib/three/addons/postprocessing/Selective
 import { CyberpunkShader } from "./shader.js";
 
 export function initPostProcessing(renderer, scene, camera, settings, LAYERS) {
-  const composer = new EffectComposer(renderer);
+  // Multisampled (MSAA) working target so scene geometry resolves with hardware
+  // antialiasing — the renderer's own `antialias` flag is inert once everything
+  // draws through the composer. Samples are wasted (but harmless) when the
+  // pixelation pass is active, which is off by default.
+  const drawSize = renderer.getDrawingBufferSize(new THREE.Vector2());
+  const msaaTarget = new THREE.WebGLRenderTarget(drawSize.x, drawSize.y, {
+    type: THREE.HalfFloatType,
+    samples: 4,
+  });
+  const composer = new EffectComposer(renderer, msaaTarget);
 
   // Selective pixel pass - renders GLB models with pixelation, other elements normally
   const selectivePixelPass = new SelectivePixelPass(
@@ -56,11 +65,16 @@ export function initPostProcessing(renderer, scene, camera, settings, LAYERS) {
     settings.colorGradingEnabled ? settings.colorGradingLiftB : 0
   );
   cyberpunkPass.uniforms['gamma'].value = settings.colorGradingEnabled ? settings.colorGradingGamma : 1.0;
-  composer.addPass(cyberpunkPass);
 
-  // Output pass for tone mapping
+  // Output pass: tone mapping + sRGB encode. Must run BEFORE the grading pass so
+  // that vignette / contrast (0.5 pivot) / Rec.709 saturation operate on
+  // display-referred [0,1] sRGB data rather than linear HDR (where that math is
+  // invalid and over-saturates / clips).
   const outputPass = new OutputPass();
   composer.addPass(outputPass);
+
+  // Cyberpunk grading pass runs last, on tone-mapped sRGB pixels, and writes to screen.
+  composer.addPass(cyberpunkPass);
 
   // Store references for updates
   composer.bloomPass = bloomPass;

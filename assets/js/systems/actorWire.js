@@ -195,8 +195,16 @@ export class ActorWire {
       this.currentTextureIndex = 0;
 
       const facePath = PATHS.images.faces;
+      // Faces are color maps viewed on a flat plane at grazing angles: tag as
+      // sRGB (else they render gamma-wrong) and enable anisotropy (else they
+      // smear/shimmer with distance). Set before GPU upload.
+      const prepFace = (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = _renderer.capabilities.getMaxAnisotropy();
+      };
       textureLoader.load(facePath + pair[0],
         (texture) => {
+          prepFace(texture);
           this.textures[0] = texture;
           this.billboard.material.map = texture;
           this.billboard.material.needsUpdate = true;
@@ -208,6 +216,7 @@ export class ActorWire {
       );
       textureLoader.load(facePath + pair[1],
         (texture) => {
+          prepFace(texture);
           this.textures[1] = texture;
           _renderer.initTexture(texture);
         }

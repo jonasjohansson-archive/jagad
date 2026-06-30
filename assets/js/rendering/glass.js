@@ -166,14 +166,19 @@ async function preloadFonts() {
   }
 }
 
-function initGlassCanvas() {
+function initGlassCanvas(renderer) {
   glassCanvas = document.createElement("canvas");
   glassCanvas.width = 1024;
   glassCanvas.height = 1024;
   glassContext = glassCanvas.getContext("2d");
   glassTexture = new THREE.CanvasTexture(glassCanvas);
-  glassTexture.minFilter = THREE.LinearFilter;
+  // Mipmaps + anisotropy: the 1024² canvas (power-of-two) on a large glass quad
+  // was using plain LinearFilter (no mipmaps), so marquee/video shimmered when
+  // minified or viewed at an angle.
+  glassTexture.minFilter = THREE.LinearMipmapLinearFilter;
   glassTexture.magFilter = THREE.LinearFilter;
+  glassTexture.generateMipmaps = true;
+  if (renderer) glassTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
 
   if (PATHS.video && PATHS.video.windowAmbience) {
     glassVideo = document.createElement("video");
@@ -433,11 +438,11 @@ export function updateGlassCanvas(timestamp = 0) {
   }
 }
 
-export function setupGlassMeshes(meshes, settings, STATE) {
+export function setupGlassMeshes(meshes, settings, STATE, renderer) {
   _settings = settings;
   _STATE = STATE;
   glassMeshes = meshes;
-  initGlassCanvas();
+  initGlassCanvas(renderer);
 
   // Pick up GLB material color as default glass tint (skip black/very dark)
   for (const mesh of meshes) {

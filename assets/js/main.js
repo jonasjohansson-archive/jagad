@@ -111,7 +111,7 @@ const loadingProgress = {
 
   // WebGL Renderer
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setPixelRatio(window.devicePixelRatio * (defaultSettings.renderScale || 1));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * (defaultSettings.renderScale || 1));
   renderer.setClearColor(0x191928, 0);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -182,7 +182,7 @@ const loadingProgress = {
   if (isFacadeMode) {
     settings.exposure = 0.67;
     settings.renderScale = 1.5;
-    renderer.setPixelRatio(window.devicePixelRatio * settings.renderScale);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.renderScale);
     renderer.toneMappingExposure = settings.exposure;
   }
 
@@ -977,14 +977,18 @@ const loadingProgress = {
         perspCamera.position.copy(src.getWorldPosition(new THREE.Vector3()));
         perspCamera.quaternion.copy(src.getWorldQuaternion(new THREE.Quaternion()));
         perspCamera.fov = src.fov;
-        perspCamera.near = src.near;
-        perspCamera.far = src.far;
+        // Clamp the GLB camera's near/far to the board scale — Blender exports
+        // commonly ship 0.1/1000+ which wrecks z-buffer precision here.
+        const clampedNear = Math.max(src.near, 1);
+        const clampedFar = Math.min(src.far, 400);
+        perspCamera.near = clampedNear;
+        perspCamera.far = clampedFar;
         perspCamera.aspect = window.innerWidth / window.innerHeight;
         perspCamera.updateProjectionMatrix();
         // Update settings to reflect GLB values
         settings.perspFov = src.fov;
-        settings.perspNear = src.near;
-        settings.perspFar = src.far;
+        settings.perspNear = clampedNear;
+        settings.perspFar = clampedFar;
         settings.perspPosX = perspCamera.position.x;
         settings.perspPosY = perspCamera.position.y;
         settings.perspPosZ = perspCamera.position.z;
@@ -1019,9 +1023,9 @@ const loadingProgress = {
 
       // 2. Apply runtime effects that need API calls
       // Render scale
-      renderer.setPixelRatio(window.devicePixelRatio * settings.renderScale);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.renderScale);
       if (composer) {
-        composer.setPixelRatio(window.devicePixelRatio * settings.renderScale);
+        composer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.renderScale);
         composer.setSize(window.innerWidth, window.innerHeight);
       }
 
@@ -1082,9 +1086,9 @@ const loadingProgress = {
 
       // 2. Re-apply restored values to runtime objects
       // Render scale
-      renderer.setPixelRatio(window.devicePixelRatio * settings.renderScale);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.renderScale);
       if (composer) {
-        composer.setPixelRatio(window.devicePixelRatio * settings.renderScale);
+        composer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.renderScale);
         composer.setSize(window.innerWidth, window.innerHeight);
       }
 
@@ -1280,7 +1284,7 @@ const loadingProgress = {
     const perfFolder = mobileFolder.addFolder("Performance");
 
     perfFolder.add(settings, "renderScale", 0.5, 2, 0.25).name("Render Scale").listen().onChange((v) => {
-      const dpr = window.devicePixelRatio;
+      const dpr = Math.min(window.devicePixelRatio, 2);
       renderer.setPixelRatio(dpr * v);
       if (composer) {
         composer.setPixelRatio(dpr * v);
@@ -1775,9 +1779,9 @@ const loadingProgress = {
     cameraFolder.add(settings, "perspPanX", -5, 5, 0.01).name("Pan X").onChange(updatePerspCameraPos);
     cameraFolder.add(settings, "perspPanZ", -5, 5, 0.01).name("Pan Y").onChange(updatePerspCameraPos);
     cameraFolder.add(settings, "renderScale", 0.5, 2, 0.25).name("Render Scale").onChange((v) => {
-      renderer.setPixelRatio(window.devicePixelRatio * v);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * v);
       if (composer) {
-        composer.setPixelRatio(window.devicePixelRatio * v);
+        composer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * v);
         composer.setSize(window.innerWidth, window.innerHeight);
       }
     });
@@ -2846,7 +2850,7 @@ const loadingProgress = {
 
 
     if (foundGlassMeshes.length > 0) {
-      setupGlassMeshes(foundGlassMeshes, settings, STATE);
+      setupGlassMeshes(foundGlassMeshes, settings, STATE, renderer);
       setBeforeRenderCallback(() => applyHighScoreText());
     }
 
