@@ -3,6 +3,7 @@
 // OrbitControls to the perspective camera; views (position/target/fov) persist
 // in localStorage so you can recall favourite angles.
 
+import * as THREE from "../lib/three/three.module.js";
 import { OrbitControls } from "../lib/three/addons/controls/OrbitControls.js";
 
 const VIEWS_KEY = "jagadCaptureViews";
@@ -11,6 +12,16 @@ let _controls = null;
 let _camera = null;
 let _getCenter = null;
 let _enabled = false;
+
+// --- Car cam: ride a chaser, look along its direction of travel -------------
+let _carCam = false;
+let _carMode = "onboard"; // "onboard" (FPS) | "chase"
+let _carCamInit = false;
+let _savedNear = null;
+const _camPos = new THREE.Vector3();
+const _lookPos = new THREE.Vector3();
+const _tmpPos = new THREE.Vector3();
+const _tmpLook = new THREE.Vector3();
 
 export function initCaptureCamera({ camera, renderer, getLevelCenter }) {
   _camera = camera;
@@ -83,4 +94,50 @@ export function deleteView(index) {
   if (index < 0 || index >= views.length) return;
   views.splice(index, 1);
   localStorage.setItem(VIEWS_KEY, JSON.stringify(views));
+}
+
+export function setCarCam(on) {
+  _carCam = !!on;
+  if (!_camera) return;
+  if (_carCam) {
+    if (_controls) _controls.enabled = false;
+    _enabled = false; // orbit yields to car cam
+    // Drop the near plane so close geometry (the street/buildings right in
+    // front) isn't clipped in the first-person view.
+    if (_savedNear == null) _savedNear = _camera.near;
+    _camera.near = 0.05;
+    _camera.updateProjectionMatrix();
+    _carCamInit = false;
+  } else if (_savedNear != null) {
+    _camera.near = _savedNear;
+    _camera.updateProjectionMatrix();
+    _savedNear = null;
+  }
+}
+
+export function setCarMode(mode) { _carMode = mode === "chase" ? "chase" : "onboard"; }
+export function isCarCamEnabled() { return _carCam; }
+
+// Drive the camera from a car's position + forward (normalised travel dir).
+// scale ~ the level's horizontalSize so offsets fit whatever the board scale is.
+export function updateCarCam(pos, fwdX, fwdZ, scale) {
+  if (!_carCam || !_camera) return;
+  const s = scale > 0.01 ? scale : 6;
+  const up = s * (_carMode === "chase" ? 0.12 : 0.045);
+  const back = s * (_carMode === "chase" ? 0.18 : 0.03);
+  const ahead = s * (_carMode === "chase" ? 0.15 : 0.30);
+
+  _tmpPos.set(pos.x - fwdX * back, pos.y + up, pos.z - fwdZ * back);
+  _tmpLook.set(pos.x + fwdX * ahead, pos.y + up * 0.4, pos.z + fwdZ * ahead);
+
+  if (!_carCamInit) {
+    _camPos.copy(_tmpPos);
+    _lookPos.copy(_tmpLook);
+    _carCamInit = true;
+  } else {
+    _camPos.lerp(_tmpPos, 0.15);   // smooth position
+    _lookPos.lerp(_tmpLook, 0.20); // smooth aim through turns
+  }
+  _camera.position.copy(_camPos);
+  _camera.lookAt(_lookPos);
 }

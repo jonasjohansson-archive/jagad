@@ -28,7 +28,7 @@ import { triggerShake, updateShake } from "./systems/cameraShake.js";
 import { setupLights, toneMappingOptions } from "./rendering/lights.js?v=149";
 import { initRecorder, flushSnapshot, startRecording, stopRecording, isRecording } from "./systems/recorder.js?v=3";
 import { initAutoplay, setAutoplayEnabled, isAutoplayEnabled, getAutoplayDirection, updateAutoplay } from "./systems/autoplay.js?v=1";
-import { initCaptureCamera, setOrbitEnabled, isOrbitEnabled, updateCaptureCamera, saveView, recallView, listViews } from "./rendering/captureCamera.js?v=1";
+import { initCaptureCamera, setOrbitEnabled, isOrbitEnabled, updateCaptureCamera, saveView, recallView, listViews, setCarCam, setCarMode, isCarCamEnabled, updateCarCam } from "./rendering/captureCamera.js?v=2";
 
 // lil-gui loaded via script tag in index.html
 const GUI = window.lil.GUI;
@@ -2485,6 +2485,20 @@ const loadingProgress = {
     // Capture tools: keep orbit controls + self-play AI ticking
     updateCaptureCamera();
     updateAutoplay(dt);
+    // Car cam: ride the chosen chaser, looking along its travel direction
+    if (isCarCamEnabled()) {
+      const ch = chasers[STATE.carCamIndex || 0];
+      if (ch && ch.mesh) {
+        let fX = 0, fZ = 1;
+        if (ch.currentEdge) {
+          const tx = (ch.currentEdge.x2 - ch.currentEdge.x1) * ch.edgeDir;
+          const tz = (ch.currentEdge.z2 - ch.currentEdge.z1) * ch.edgeDir;
+          const l = Math.hypot(tx, tz);
+          if (l > 0.001) { fX = tx / l; fZ = tz / l; }
+        }
+        updateCarCam(ch.mesh.position, fX, fZ, STATE.horizontalSize);
+      }
+    }
 
     // Grab a still here (buffer is fresh) if P was pressed
     flushSnapshot(canvas);
@@ -3427,6 +3441,7 @@ const loadingProgress = {
         autoplay: () => isAutoplayEnabled(),
         recording: () => isRecording(),
         play: () => playSequence(),
+        camPos: () => perspCamera.position.toArray().map(n => +n.toFixed(2)),
       };
     }
 
@@ -3498,7 +3513,45 @@ const loadingProgress = {
       refreshChips();
 
       row.append(playBtn, orbitBtn, saveBtn);
-      panel.append(row, chips);
+
+      // Car cam row
+      STATE.carCamIndex = STATE.carCamIndex || 0;
+      const carRow = document.createElement("div");
+      carRow.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap";
+      const carBtn = mkBtn("🚗 Car cam: off");
+      const modeBtn = mkBtn("Onboard");
+      modeBtn.style.padding = "6px 10px";
+      let carMode = "onboard";
+      carBtn.addEventListener("click", () => {
+        const on = !isCarCamEnabled();
+        if (on) { switchCamera("perspective"); orbitBtn.textContent = "🎥 Orbit: off"; orbitBtn.style.background = "rgba(0,0,0,0.6)"; }
+        setCarCam(on);
+        carBtn.textContent = on ? "🚗 Car cam: on" : "🚗 Car cam: off";
+        carBtn.style.background = on ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)";
+        carBtn.blur();
+      });
+      modeBtn.addEventListener("click", () => {
+        carMode = carMode === "onboard" ? "chase" : "onboard";
+        setCarMode(carMode);
+        modeBtn.textContent = carMode === "onboard" ? "Onboard" : "Chase";
+        modeBtn.blur();
+      });
+      const carPick = document.createElement("div");
+      carPick.style.cssText = "display:flex;gap:4px";
+      for (let i = 0; i < 4; i++) {
+        const cb = mkBtn(`C${i + 1}`);
+        cb.style.padding = "6px 9px";
+        cb.style.background = i === STATE.carCamIndex ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)";
+        cb.addEventListener("click", () => {
+          STATE.carCamIndex = i;
+          [...carPick.children].forEach((c, j) => c.style.background = j === i ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)");
+          cb.blur();
+        });
+        carPick.appendChild(cb);
+      }
+      carRow.append(carBtn, modeBtn, carPick);
+
+      panel.append(row, carRow, chips);
       document.body.appendChild(panel);
     }
 
