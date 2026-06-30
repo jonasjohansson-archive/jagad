@@ -9,6 +9,7 @@ let audioAnalyser = null;
 let audioSource = null;
 let audioFrequencyData = null;
 let helicopterAudio = null;
+let recordDest = null; // MediaStreamDestination tap for the recorder
 const preloadedSFX = {};
 
 // Tone.js modulated SFX: per-player pitch variation
@@ -36,10 +37,32 @@ function setupAudioAnalyser() {
     audioSource = audioContext.createMediaElementSource(audioElement);
     audioSource.connect(audioAnalyser);
     audioAnalyser.connect(audioContext.destination);
+    // Also feed the music into the recorder tap so captures include the soundtrack
+    if (recordDest) audioAnalyser.connect(recordDest);
     audioFrequencyData = new Uint8Array(audioAnalyser.frequencyBinCount);
   } catch (e) {
     console.warn("Failed to setup audio analyser:", e);
   }
+}
+
+// Lazily create (once) a MediaStreamDestination on the music context and
+// return its stream. The recorder calls this to mix game audio into the file.
+export function getRecordingAudioStream() {
+  if (!audioContext) return null;
+  if (!recordDest) {
+    try {
+      recordDest = audioContext.createMediaStreamDestination();
+      // Wire up sources that already exist
+      if (audioAnalyser) audioAnalyser.connect(recordDest);
+      for (const key in tonePlayers) {
+        try { tonePlayers[key].connect(recordDest); } catch (e) {}
+      }
+    } catch (e) {
+      console.warn("Failed to create recording tap:", e);
+      return null;
+    }
+  }
+  return recordDest.stream;
 }
 
 export function getAudioFrequency(bandIndex, numBands) {
@@ -114,6 +137,10 @@ function initToneSFX() {
       const player = new Tone.Player(path).toDestination();
       player.playbackRate = rate;
       player.volume.value = -6;
+      // Also feed the recorder tap so captured audio includes SFX
+      if (recordDest) {
+        try { player.connect(recordDest); } catch (e) {}
+      }
       tonePlayers[`${name}_${i}`] = player;
     }
   }
@@ -176,11 +203,26 @@ export function unlockAudio() {
     const script = document.createElement("script");
     script.src = "./assets/js/lib/Tone.js";
     script.onload = () => {
+      shareToneContext();
       Tone.start().then(() => initToneSFX()).catch(() => {});
     };
     document.head.appendChild(script);
   } else {
+    shareToneContext();
     Tone.start().then(() => initToneSFX()).catch(() => {});
+  }
+}
+
+// Put Tone.js on the same AudioContext as the music so SFX flow through the
+// same graph (and the recorder tap can capture them in a single stream).
+function shareToneContext() {
+  if (typeof Tone === "undefined" || !audioContext) return;
+  try {
+    if (Tone.getContext().rawContext !== audioContext) {
+      Tone.setContext(audioContext);
+    }
+  } catch (e) {
+    console.warn("Failed to share Tone context:", e);
   }
 }
 document.addEventListener("touchstart", unlockAudio, { once: true });

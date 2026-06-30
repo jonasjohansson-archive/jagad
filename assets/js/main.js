@@ -26,6 +26,7 @@ import { initPathMovement, initActorOnPath, updateFugitiveMovementPath, updateCh
 import { initActorWire, ActorWire, updateWireBillboards } from "./systems/actorWire.js?v=149";
 import { triggerShake, updateShake } from "./systems/cameraShake.js";
 import { setupLights, toneMappingOptions } from "./rendering/lights.js?v=149";
+import { initRecorder, flushSnapshot } from "./systems/recorder.js?v=1";
 
 // lil-gui loaded via script tag in index.html
 const GUI = window.lil.GUI;
@@ -116,6 +117,9 @@ const loadingProgress = {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = 1;
+
+  // Capture: press R (or ?record) to record canvas + audio to a .webm
+  initRecorder(canvas, { fps: 60 });
 
   // KTX2 texture loader (GPU-compressed textures in GLB)
   const ktx2Loader = new KTX2Loader();
@@ -2461,6 +2465,9 @@ const loadingProgress = {
     } else {
       renderer.render(scene, camera);
     }
+
+    // Grab a still here (buffer is fresh) if P was pressed
+    flushSnapshot(canvas);
 
     statsPanel.end();
   }
