@@ -14,7 +14,7 @@ import { isMobileDevice, saveDesktopSettings, applyMobileOverrides, restoreDeskt
 import { checkCollision } from "./game/collision.js?v=149";
 import { getServerAddress, connectToServer, sendServerEvent, postHighScore } from "./game/server.js?v=149";
 import { initAudio, playAudio, stopAudio, setAudioTrack, initSFX, playSFX, playHelicopterSound, stopHelicopterSound, unlockAudio, getAudioElement } from "./systems/audio.js?v=149";
-import { initPostProcessing, updatePostProcessing } from "./rendering/postprocessing.js?v=149";
+import { initPostProcessing, updatePostProcessing } from "./rendering/postprocessing.js?v=150";
 import { loadHelicopter, updateHelicopter, rebuildHelicopterCone, updateHelicopterColor, updateHelicopterScale, updateHelicopterBoundsHelper, getHelicopter, getHelicopterLightHelper, getHelicopterBoundsHelper, setHelicopterLightHelper } from "./systems/helicopter.js?v=149";
 import { setupSearchlights, updateSearchlights, toggleSearchlightHelpers } from "./systems/searchlights.js?v=149";
 import { updateLamps, updateCarsAudio, updateTextBPMPulse, updateAllEmissives } from "./systems/emissives.js?v=149";

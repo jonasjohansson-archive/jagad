@@ -7,19 +7,14 @@ import { UnrealBloomPass } from "../lib/three/addons/postprocessing/UnrealBloomP
 import { OutputPass } from "../lib/three/addons/postprocessing/OutputPass.js";
 import { ShaderPass } from "../lib/three/addons/postprocessing/ShaderPass.js";
 import { SelectivePixelPass } from "../lib/three/addons/postprocessing/SelectivePixelPass.js";
+import { FXAAPass } from "../lib/three/addons/postprocessing/FXAAPass.js";
 import { CyberpunkShader } from "./shader.js";
 
 export function initPostProcessing(renderer, scene, camera, settings, LAYERS) {
-  // Multisampled (MSAA) working target so scene geometry resolves with hardware
-  // antialiasing — the renderer's own `antialias` flag is inert once everything
-  // draws through the composer. Samples are wasted (but harmless) when the
-  // pixelation pass is active, which is off by default.
-  const drawSize = renderer.getDrawingBufferSize(new THREE.Vector2());
-  const msaaTarget = new THREE.WebGLRenderTarget(drawSize.x, drawSize.y, {
-    type: THREE.HalfFloatType,
-    samples: 4,
-  });
-  const composer = new EffectComposer(renderer, msaaTarget);
+  // Antialiasing via a single cheap FXAA post pass (added below) rather than
+  // hardware MSAA on the HalfFloat composer target — 4x MSAA on a retina-sized
+  // float buffer was far too expensive and tanked the framerate.
+  const composer = new EffectComposer(renderer);
 
   // Selective pixel pass - renders GLB models with pixelation, other elements normally
   const selectivePixelPass = new SelectivePixelPass(
@@ -73,13 +68,21 @@ export function initPostProcessing(renderer, scene, camera, settings, LAYERS) {
   const outputPass = new OutputPass();
   composer.addPass(outputPass);
 
-  // Cyberpunk grading pass runs last, on tone-mapped sRGB pixels, and writes to screen.
+  // Cyberpunk grading pass, on tone-mapped sRGB pixels.
   composer.addPass(cyberpunkPass);
+
+  // FXAA last — needs sRGB input (so after OutputPass) and antialiases the final
+  // composited image. Cheap single pass; disabled when pixelation is on so it
+  // doesn't soften the pixel-art look.
+  const fxaaPass = new FXAAPass();
+  fxaaPass.enabled = !settings.pixelationEnabled;
+  composer.addPass(fxaaPass);
 
   // Store references for updates
   composer.bloomPass = bloomPass;
   composer.cyberpunkPass = cyberpunkPass;
   composer.selectivePixelPass = selectivePixelPass;
+  composer.fxaaPass = fxaaPass;
 
   return composer;
 }
@@ -110,6 +113,11 @@ export function updatePostProcessing(composer, scene, settings) {
       en ? settings.colorGradingLiftR : 0, en ? settings.colorGradingLiftG : 0, en ? settings.colorGradingLiftB : 0
     );
     composer.cyberpunkPass.uniforms['gamma'].value = en ? settings.colorGradingGamma : 1.0;
+  }
+
+  // FXAA off when pixelation is on (keep hard pixel edges)
+  if (composer.fxaaPass) {
+    composer.fxaaPass.enabled = !settings.pixelationEnabled;
   }
 
   // Update selective pixelation
