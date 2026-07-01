@@ -599,8 +599,9 @@ const loadingProgress = {
     sendServerEvent({ type: "chaserSelected", chaserIndex, color: chaserColor, playerName: `Player ${chaserIndex + 1}` });
 
     // Check if this is the first ready chaser - start countdown
+    // (suppressed during a staged self-play join so all cars pop in first)
     const readyCount = chasers.filter(c => c.ready).length;
-    if (readyCount === 1) {
+    if (readyCount === 1 && !STATE.suppressCountdownOnReady) {
       setGameState("STARTING");
     }
   }
@@ -3454,15 +3455,22 @@ const loadingProgress = {
       for (const c of chasers) { c.ready = false; c.active = false; }
       STATE.firstPlayerIndex = -1;
       setGameState("PRE_GAME");
-      const n = Math.min(chasers.length, 4);
-      for (let i = 0; i < n; i++) markChaserReady(i); // first ready -> STARTING -> PLAYING
       setAutoplayEnabled(true);
       if (!isRecording()) startRecording(renderer.domElement, 60);
-      // Failsafe: STARTING->PLAYING normally fires on the countdown video's
-      // 'ended' event; if that doesn't arrive (e.g. video blocked), force it so
-      // the sequence never stalls.
-      const countdownMs = (settings.countdownDuration || 4) * 1000 + 1500;
-      setTimeout(() => { if (STATE.gameState === "STARTING") setGameState("PLAYING"); }, countdownMs);
+
+      // Cars pop in one at a time, 0.5s apart, then the countdown starts.
+      const n = Math.min(chasers.length, 4);
+      const STEP = 500;
+      STATE.suppressCountdownOnReady = true;
+      for (let i = 0; i < n; i++) setTimeout(() => markChaserReady(i), i * STEP);
+      setTimeout(() => {
+        STATE.suppressCountdownOnReady = false;
+        setGameState("STARTING");
+        // Failsafe: STARTING->PLAYING normally fires on the countdown video's
+        // 'ended' event; force it if that doesn't arrive so we never stall.
+        const countdownMs = (settings.countdownDuration || 4) * 1000 + 1500;
+        setTimeout(() => { if (STATE.gameState === "STARTING") setGameState("PLAYING"); }, countdownMs);
+      }, n * STEP);
     }
 
     function buildCaptureHUD() {
