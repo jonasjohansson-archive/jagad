@@ -28,7 +28,7 @@ import { triggerShake, updateShake } from "./systems/cameraShake.js";
 import { setupLights, toneMappingOptions } from "./rendering/lights.js?v=149";
 import { initRecorder, flushSnapshot, startRecording, stopRecording, isRecording } from "./systems/recorder.js?v=3";
 import { initAutoplay, setAutoplayEnabled, isAutoplayEnabled, getAutoplayDirection, updateAutoplay, setManualChaser } from "./systems/autoplay.js?v=2";
-import { initCaptureCamera, setOrbitEnabled, isOrbitEnabled, updateCaptureCamera, saveView, recallView, listViews, setCarCam, setCarMode, isCarCamEnabled, updateCarCam } from "./rendering/captureCamera.js?v=2";
+import { initCaptureCamera, setOrbitEnabled, isOrbitEnabled, updateCaptureCamera, saveView, recallView, listViews, setCarCam, setCarMode, isCarCamEnabled, updateCarCam, nudgeCarHeight } from "./rendering/captureCamera.js?v=3";
 
 // lil-gui loaded via script tag in index.html
 const GUI = window.lil.GUI;
@@ -3538,6 +3538,12 @@ const loadingProgress = {
         modeBtn.textContent = carMode === "onboard" ? "Onboard" : "Chase";
         modeBtn.blur();
       });
+      const downBtn = mkBtn("▼");
+      const upBtn = mkBtn("▲");
+      downBtn.style.padding = upBtn.style.padding = "6px 9px";
+      downBtn.title = "Lower camera"; upBtn.title = "Raise camera";
+      downBtn.addEventListener("click", () => { nudgeCarHeight(-0.005); downBtn.blur(); });
+      upBtn.addEventListener("click", () => { nudgeCarHeight(0.005); upBtn.blur(); });
       const carPick = document.createElement("div");
       carPick.style.cssText = "display:flex;gap:4px";
       const CONTROLS = ["WASD", "TFGH", "IJKL", "Arrows"];
@@ -3567,7 +3573,7 @@ const loadingProgress = {
         });
         carPick.appendChild(cb);
       }
-      carRow.append(carBtn, modeBtn, carPick, driveBtn);
+      carRow.append(carBtn, modeBtn, downBtn, upBtn, carPick, driveBtn);
 
       panel.append(row, carRow, hint, chips);
       document.body.appendChild(panel);

@@ -118,14 +118,23 @@ export function setCarCam(on) {
 export function setCarMode(mode) { _carMode = mode === "chase" ? "chase" : "onboard"; }
 export function isCarCamEnabled() { return _carCam; }
 
+// Onboard camera height as a fraction of scene scale — adjustable live so you
+// can sit lower ("in the car") or a touch higher.
+let _onboardUp = 0.02;
+export function nudgeCarHeight(delta) {
+  _onboardUp = Math.max(0.004, Math.min(0.12, _onboardUp + delta));
+  return _onboardUp;
+}
+
 // Drive the camera from a car's position + forward (normalised travel dir).
 // scale ~ the level's horizontalSize so offsets fit whatever the board scale is.
 export function updateCarCam(pos, fwdX, fwdZ, scale) {
   if (!_carCam || !_camera) return;
   const s = scale > 0.01 ? scale : 6;
-  const up = s * (_carMode === "chase" ? 0.12 : 0.045);
-  const back = s * (_carMode === "chase" ? 0.18 : 0.03);
-  const ahead = s * (_carMode === "chase" ? 0.15 : 0.30);
+  const chase = _carMode === "chase";
+  const up = s * (chase ? 0.12 : _onboardUp);
+  const back = s * (chase ? 0.18 : 0.006);
+  const ahead = s * (chase ? 0.15 : 0.30);
 
   _tmpPos.set(pos.x - fwdX * back, pos.y + up, pos.z - fwdZ * back);
   _tmpLook.set(pos.x + fwdX * ahead, pos.y + up * 0.4, pos.z + fwdZ * ahead);
