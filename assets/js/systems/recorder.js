@@ -104,6 +104,26 @@ function pickMime() {
   return "";
 }
 
+// Share-friendly H.264 MP4 (hardware-encoded where available). Supported in
+// Chrome 126+ and Safari; vanilla Chromium (no proprietary codecs) returns "".
+function pickMp4Mime() {
+  const candidates = [
+    "video/mp4;codecs=avc1.640028,mp4a.40.2",
+    "video/mp4;codecs=avc1,mp4a.40.2",
+    "video/mp4;codecs=avc1,opus",
+    "video/mp4;codecs=avc1",
+    "video/mp4",
+  ];
+  for (const m of candidates) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return "";
+}
+
+let mp4Recorder = null;
+let mp4Chunks = [];
+let fileBase = "jagad";
+
 function start(canvas, fps) {
   if (recording) return;
   if (!window.MediaRecorder) {
@@ -132,14 +152,40 @@ function start(canvas, fps) {
     console.warn("[recorder] failed to create MediaRecorder:", e);
     return;
   }
+  fileBase = `jagad-${new Date().toISOString().replace(/[:.]/g, "-")}`;
   chunks = [];
   mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
   mediaRecorder.onstop = save;
   mediaRecorder.start(250);
+
+  // Simultaneous H.264 MP4 for easy sharing — second recorder on a cloned
+  // stream. H.264 is hardware-encoded on most machines, so the extra cost is
+  // small. Skipped (webm only) where the browser can't mux mp4.
+  const mp4Mime = pickMp4Mime();
+  mp4Recorder = null;
+  if (mp4Mime) {
+    try {
+      mp4Recorder = new MediaRecorder(stream.clone(), {
+        mimeType: mp4Mime,
+        videoBitsPerSecond: 12_000_000,
+        audioBitsPerSecond: 192_000,
+      });
+      mp4Chunks = [];
+      mp4Recorder.ondataavailable = (e) => { if (e.data && e.data.size) mp4Chunks.push(e.data); };
+      mp4Recorder.onstop = saveMp4;
+      mp4Recorder.start(250);
+    } catch (e) {
+      mp4Recorder = null;
+      console.warn("[recorder] mp4 recorder failed, webm only:", e);
+    }
+  } else {
+    console.log("[recorder] H.264 mp4 not supported in this browser — webm only");
+  }
+
   recording = true;
   showIndicator(true);
   reflectRecording(true);
-  console.log(`[recorder] recording at ${fps}fps (${mimeType || "default"})${audioStream ? " + audio" : ""}`);
+  console.log(`[recorder] recording at ${fps}fps (${mimeType || "default"})${mp4Recorder ? ` + mp4 (${mp4Mime})` : ""}${audioStream ? " + audio" : ""}`);
 }
 
 function stop() {
@@ -148,22 +194,34 @@ function stop() {
   showIndicator(false);
   reflectRecording(false);
   if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+  if (mp4Recorder && mp4Recorder.state !== "inactive") mp4Recorder.stop();
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return url;
 }
 
 function save() {
   const blob = new Blob(chunks, { type: "video/webm" });
   chunks = [];
-  const url = URL.createObjectURL(blob);
   // expose for headless retrieval
-  window.__jagadLastRecording = { blob, url };
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `jagad-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  console.log(`[recorder] saved ${(blob.size / 1e6).toFixed(1)} MB`);
+  window.__jagadLastRecording = { blob, url: downloadBlob(blob, `${fileBase}.webm`) };
+  console.log(`[recorder] saved webm ${(blob.size / 1e6).toFixed(1)} MB`);
+}
+
+function saveMp4() {
+  const blob = new Blob(mp4Chunks, { type: "video/mp4" });
+  mp4Chunks = [];
+  window.__jagadLastRecordingMp4 = { blob, url: downloadBlob(blob, `${fileBase}.mp4`) };
+  console.log(`[recorder] saved mp4 ${(blob.size / 1e6).toFixed(1)} MB`);
 }
 
 export function toggleRecording(canvas, fps) {
