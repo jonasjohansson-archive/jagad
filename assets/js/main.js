@@ -28,7 +28,7 @@ import { triggerShake, updateShake } from "./systems/cameraShake.js";
 import { setupLights, toneMappingOptions } from "./rendering/lights.js?v=149";
 import { initRecorder, flushSnapshot, startRecording, stopRecording, isRecording, updateRecorderStreams } from "./systems/recorder.js?v=6";
 import { initAutoplay, setAutoplayEnabled, isAutoplayEnabled, getAutoplayDirection, updateAutoplay, setManualChaser } from "./systems/autoplay.js?v=2";
-import { initCaptureCamera, setOrbitEnabled, isOrbitEnabled, updateCaptureCamera, saveView, recallView, listViews, setCarCam, setCarMode, isCarCamEnabled, updateCarCam, nudgeCarHeight } from "./rendering/captureCamera.js?v=3";
+import { initCaptureCamera, setOrbitEnabled, isOrbitEnabled, updateCaptureCamera, saveView, recallView, listViews, setCameraView, getCameraView, setCarMode, isCarCamEnabled, isHeliCamEnabled, updateCarCam, updateHeliCam, nudgeCarHeight } from "./rendering/captureCamera.js?v=4";
 
 // lil-gui loaded via script tag in index.html
 const GUI = window.lil.GUI;
@@ -2499,9 +2499,21 @@ const loadingProgress = {
         }
         updateCarCam(ch.mesh.position, fX, fZ, STATE.horizontalSize);
       }
+    } else if (isHeliCamEnabled()) {
+      const h = getHelicopter();
+      if (h && h.mesh) {
+        // Forward from the heli's recent motion (it drifts smoothly)
+        const hp = h.mesh.position;
+        const prev = STATE.heliCamPrev || (STATE.heliCamPrev = { x: hp.x, z: hp.z, fx: 0, fz: 1 });
+        const dx = hp.x - prev.x, dz = hp.z - prev.z;
+        const dl = Math.hypot(dx, dz);
+        if (dl > 0.0005) { prev.fx = dx / dl; prev.fz = dz / dl; }
+        prev.x = hp.x; prev.z = hp.z;
+        updateHeliCam(hp, prev.fx, prev.fz, STATE.horizontalSize, STATE.streetY || 0);
+      }
     }
-    // Heads face the camera in capture views (car cam / orbit), flat otherwise
-    setBillboardFaceCamera((isCarCamEnabled() || isOrbitEnabled()) ? perspCamera : null);
+    // Heads face the camera in capture views (car/heli cam or orbit), flat otherwise
+    setBillboardFaceCamera((getCameraView() !== "top" || isOrbitEnabled()) ? perspCamera : null);
 
     // Grab a still here (buffer is fresh) if P was pressed
     flushSnapshot(canvas);
@@ -3503,7 +3515,8 @@ const loadingProgress = {
       orbitBtn.addEventListener("click", () => {
         const on = !isOrbitEnabled();
         if (on) { switchCamera("perspective"); }
-        setOrbitEnabled(on);
+        setOrbitEnabled(on); // enabling orbit also drops any follow cam back to top
+        if (on) for (const k in viewBtns) viewBtns[k].style.background = k === "top" ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)";
         orbitBtn.textContent = on ? "🎥 Orbit: on" : "🎥 Orbit: off";
         orbitBtn.style.background = on ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)";
         orbitBtn.blur();
@@ -3526,22 +3539,29 @@ const loadingProgress = {
 
       row.append(playBtn, orbitBtn, saveBtn);
 
-      // Car cam row
+      // View switcher: Top / Car / Heli
       STATE.carCamIndex = STATE.carCamIndex || 0;
       const carRow = document.createElement("div");
       carRow.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap";
-      const carBtn = mkBtn("🚗 Car cam: off");
+      const ACTIVE = "rgba(80,140,255,0.85)", IDLE = "rgba(0,0,0,0.6)";
+      const viewBtns = {};
+      const setView = (m) => {
+        if (m !== "top") switchCamera("perspective");
+        setCameraView(m);
+        orbitBtn.textContent = "🎥 Orbit: off";
+        orbitBtn.style.background = IDLE;
+        for (const k in viewBtns) viewBtns[k].style.background = k === m ? ACTIVE : IDLE;
+      };
+      for (const [key, label] of [["top", "🗺 Top"], ["car", "🚗 Car"], ["heli", "🚁 Heli"]]) {
+        const vb = mkBtn(label);
+        vb.style.padding = "8px 11px";
+        vb.style.background = key === "top" ? ACTIVE : IDLE;
+        vb.addEventListener("click", () => { setView(key); vb.blur(); });
+        viewBtns[key] = vb;
+      }
       const modeBtn = mkBtn("Onboard");
       modeBtn.style.padding = "6px 10px";
       let carMode = "onboard";
-      carBtn.addEventListener("click", () => {
-        const on = !isCarCamEnabled();
-        if (on) { switchCamera("perspective"); orbitBtn.textContent = "🎥 Orbit: off"; orbitBtn.style.background = "rgba(0,0,0,0.6)"; }
-        setCarCam(on);
-        carBtn.textContent = on ? "🚗 Car cam: on" : "🚗 Car cam: off";
-        carBtn.style.background = on ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)";
-        carBtn.blur();
-      });
       modeBtn.addEventListener("click", () => {
         carMode = carMode === "onboard" ? "chase" : "onboard";
         setCarMode(carMode);
@@ -3583,7 +3603,7 @@ const loadingProgress = {
         });
         carPick.appendChild(cb);
       }
-      carRow.append(carBtn, modeBtn, downBtn, upBtn, carPick, driveBtn);
+      carRow.append(viewBtns.top, viewBtns.car, viewBtns.heli, modeBtn, downBtn, upBtn, carPick, driveBtn);
 
       panel.append(row, carRow, hint, chips);
       document.body.appendChild(panel);
