@@ -18,7 +18,7 @@ import { initPostProcessing, updatePostProcessing } from "./rendering/postproces
 import { loadHelicopter, updateHelicopter, rebuildHelicopterCone, updateHelicopterColor, updateHelicopterScale, updateHelicopterBoundsHelper, getHelicopter, getHelicopterLightHelper, getHelicopterBoundsHelper, setHelicopterLightHelper } from "./systems/helicopter.js?v=149";
 import { setupSearchlights, updateSearchlights, toggleSearchlightHelpers } from "./systems/searchlights.js?v=149";
 import { updateLamps, updateCarsAudio, updateTextBPMPulse, updateAllEmissives } from "./systems/emissives.js?v=149";
-import { createCaptureEffect, updateCaptureEffects, clearCaptureEffects } from "./systems/captureEffects.js?v=149";
+import { createCaptureEffect, updateCaptureEffects, clearCaptureEffects } from "./systems/captureEffects.js?v=150";
 import { setupGlassMeshes, updateGlassCanvas, updateGlassPosition, updateGlassMaterialOpacity, updateGlassColor, updateGlassBrightness, isShuffleActive, setBeforeRenderCallback, getGlassMeshes, getGlassMaterials, getGlassVideo, getGlassCanvas, isGlassVideoReady } from "./rendering/glass.js?v=149";
 import { initTemplateVars, applyStartingText, applyPlayingText, applyHighScoreText, applyGameOverText } from "./game/templateVars.js?v=149";
 import { initProjection, initProjectionPlane, updateProjectionForState, loadProjectionImage, updateProjectionPump, handleProjectionStateChange, applyProjectionMaterial } from "./rendering/projection.js?v=149";

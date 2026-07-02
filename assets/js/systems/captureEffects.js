@@ -182,17 +182,21 @@ export function createCaptureEffect(position, chaserColor, billboard, scene, set
   const particleVelocities = [];
   const particleColors = new Float32Array(particleCount * 3);
 
+  // Keep the burst hugging the road: spawn right at the actor (cars are only
+  // ~0.2 units tall on this board) instead of floating 0.3 above it.
   const billboardPos = position.clone();
-  billboardPos.y = position.y + 0.3;
+  billboardPos.y = position.y + 0.05;
 
   for (let i = 0; i < particleCount; i++) {
     particlePositions[i * 3] = billboardPos.x + (Math.random() - 0.5) * 0.3;
-    particlePositions[i * 3 + 1] = billboardPos.y + (Math.random() - 0.5) * 0.3;
+    particlePositions[i * 3 + 1] = billboardPos.y + (Math.random() - 0.5) * 0.1;
     particlePositions[i * 3 + 2] = billboardPos.z + (Math.random() - 0.5) * 0.3;
 
     const angle = Math.random() * Math.PI * 2;
     const speed = Math.random() * 1.5 + 0.5;
-    const upSpeed = Math.random() * 2 + 0.5;
+    // Low pop, not a fountain — sparks spread along the street rather than
+    // climbing to rooftop height
+    const upSpeed = Math.random() * 0.7 + 0.2;
     particleVelocities.push({
       x: Math.cos(angle) * speed,
       y: upSpeed,
@@ -336,11 +340,13 @@ export function updateCaptureEffects(dt, scene) {
     effect.particleMat.opacity = Math.max(0, 1 - t * 1.2);
     effect.particleMat.size = 0.25 * (1 - t * 0.3);
 
-    // Animate flash - quick bright flash that fades
+    // Animate flash - quick bright flash that fades. Squashed vertically so it
+    // reads as a burst on the road, not a ball floating above it.
     if (effect.flash) {
       const flashT = Math.min(1, effect.time * 5);
       effect.flashMat.opacity = Math.max(0, 1 - flashT);
-      effect.flash.scale.setScalar(1 + flashT * 2);
+      const fs = 1 + flashT * 2;
+      effect.flash.scale.set(fs, fs * 0.35, fs);
     }
   }
 }
