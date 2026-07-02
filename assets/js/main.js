@@ -13,7 +13,7 @@ import { createBoostState, triggerBoost, updateBoosts, getBoostMultiplier, reset
 import { isMobileDevice, saveDesktopSettings, applyMobileOverrides, restoreDesktopSettings, initTouchInput } from "./game/mobile.js?v=4";
 import { checkCollision } from "./game/collision.js?v=149";
 import { getServerAddress, connectToServer, sendServerEvent, postHighScore } from "./game/server.js?v=149";
-import { initAudio, playAudio, stopAudio, setAudioTrack, initSFX, playSFX, playHelicopterSound, stopHelicopterSound, unlockAudio, getAudioElement } from "./systems/audio.js?v=149";
+import { initAudio, playAudio, stopAudio, setAudioTrack, initSFX, playSFX, playHelicopterSound, stopHelicopterSound, unlockAudio, getAudioElement } from "./systems/audio.js?v=151";
 import { initPostProcessing, updatePostProcessing } from "./rendering/postprocessing.js?v=150";
 import { loadHelicopter, updateHelicopter, rebuildHelicopterCone, updateHelicopterColor, updateHelicopterScale, updateHelicopterBoundsHelper, getHelicopter, getHelicopterLightHelper, getHelicopterBoundsHelper, setHelicopterLightHelper } from "./systems/helicopter.js?v=149";
 import { setupSearchlights, updateSearchlights, toggleSearchlightHelpers } from "./systems/searchlights.js?v=149";
@@ -26,7 +26,7 @@ import { initPathMovement, initActorOnPath, updateFugitiveMovementPath, updateCh
 import { initActorWire, ActorWire, updateWireBillboards, setBillboardFaceCamera } from "./systems/actorWire.js?v=150";
 import { triggerShake, updateShake } from "./systems/cameraShake.js";
 import { setupLights, toneMappingOptions } from "./rendering/lights.js?v=149";
-import { initRecorder, flushSnapshot, startRecording, stopRecording, isRecording } from "./systems/recorder.js?v=3";
+import { initRecorder, flushSnapshot, startRecording, stopRecording, isRecording } from "./systems/recorder.js?v=4";
 import { initAutoplay, setAutoplayEnabled, isAutoplayEnabled, getAutoplayDirection, updateAutoplay, setManualChaser } from "./systems/autoplay.js?v=2";
 import { initCaptureCamera, setOrbitEnabled, isOrbitEnabled, updateCaptureCamera, saveView, recallView, listViews, setCarCam, setCarMode, isCarCamEnabled, updateCarCam, nudgeCarHeight } from "./rendering/captureCamera.js?v=3";
 

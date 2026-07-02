@@ -12,7 +12,7 @@
 
 // NOTE: must match the version query main.js uses so we share the same
 // audio.js module instance (and thus the live AudioContext), not a second copy.
-import { getRecordingAudioStream } from "./audio.js?v=149";
+import { getRecordingAudioStream } from "./audio.js?v=151";
 
 let mediaRecorder = null;
 let chunks = [];
