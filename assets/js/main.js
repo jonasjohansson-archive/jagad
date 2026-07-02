@@ -26,7 +26,7 @@ import { initPathMovement, initActorOnPath, updateFugitiveMovementPath, updateCh
 import { initActorWire, ActorWire, updateWireBillboards, setBillboardFaceCamera } from "./systems/actorWire.js?v=150";
 import { triggerShake, updateShake } from "./systems/cameraShake.js";
 import { setupLights, toneMappingOptions } from "./rendering/lights.js?v=149";
-import { initRecorder, flushSnapshot, startRecording, stopRecording, isRecording } from "./systems/recorder.js?v=5";
+import { initRecorder, flushSnapshot, startRecording, stopRecording, isRecording, updateRecorderStreams } from "./systems/recorder.js?v=6";
 import { initAutoplay, setAutoplayEnabled, isAutoplayEnabled, getAutoplayDirection, updateAutoplay, setManualChaser } from "./systems/autoplay.js?v=2";
 import { initCaptureCamera, setOrbitEnabled, isOrbitEnabled, updateCaptureCamera, saveView, recallView, listViews, setCarCam, setCarMode, isCarCamEnabled, updateCarCam, nudgeCarHeight } from "./rendering/captureCamera.js?v=3";
 
@@ -2505,6 +2505,8 @@ const loadingProgress = {
 
     // Grab a still here (buffer is fresh) if P was pressed
     flushSnapshot(canvas);
+    // Mirror the frame into the downscaled mp4 companion while recording
+    updateRecorderStreams(canvas);
 
     statsPanel.end();
   }

@@ -122,7 +122,16 @@ function pickMp4Mime() {
 
 let mp4Recorder = null;
 let mp4Chunks = [];
+let mp4Bytes = 0;
+let mp4Canvas = null;
+let mp4Ctx = null;
 let fileBase = "jagad";
+
+// Discord's upload limit is 10 MB — keep the mp4 safely under it. The webm
+// stays full-res/full-rate; the mp4 is the small shareable companion.
+const MP4_MAX_BYTES = 9_600_000;
+const MP4_MAX_WIDTH = 960;
+const MP4_BUDGET_SECS = 100; // full round (90s) + countdown + tail
 
 function start(canvas, fps) {
   if (recording) return;
@@ -158,24 +167,46 @@ function start(canvas, fps) {
   mediaRecorder.onstop = save;
   mediaRecorder.start(250);
 
-  // Simultaneous H.264 MP4 for easy sharing — second recorder on a cloned
-  // stream. H.264 is hardware-encoded on most machines, so the extra cost is
-  // small. Skipped (webm only) where the browser can't mux mp4.
+  // Simultaneous H.264 MP4 for easy sharing, sized for Discord's 10 MB limit:
+  // downscaled to ≤960px/30fps on a side canvas, bitrate budgeted for a full
+  // round, and hard-capped just under 10 MB if a recording runs long.
   const mp4Mime = pickMp4Mime();
   mp4Recorder = null;
   if (mp4Mime) {
     try {
-      mp4Recorder = new MediaRecorder(stream.clone(), {
+      const scale = Math.min(1, MP4_MAX_WIDTH / canvas.width);
+      mp4Canvas = document.createElement("canvas");
+      mp4Canvas.width = Math.round((canvas.width * scale) / 2) * 2; // h264 wants even dims
+      mp4Canvas.height = Math.round((canvas.height * scale) / 2) * 2;
+      mp4Ctx = mp4Canvas.getContext("2d");
+      const mp4Stream = mp4Canvas.captureStream(30);
+      if (audioStream) audioStream.getAudioTracks().forEach((t) => mp4Stream.addTrack(t.clone()));
+
+      const audioKbps = 96;
+      const videoBps = Math.floor((MP4_MAX_BYTES * 8) / MP4_BUDGET_SECS) - audioKbps * 1000;
+      mp4Recorder = new MediaRecorder(mp4Stream, {
         mimeType: mp4Mime,
-        videoBitsPerSecond: 12_000_000,
-        audioBitsPerSecond: 192_000,
+        videoBitsPerSecond: videoBps,
+        audioBitsPerSecond: audioKbps * 1000,
       });
       mp4Chunks = [];
-      mp4Recorder.ondataavailable = (e) => { if (e.data && e.data.size) mp4Chunks.push(e.data); };
+      mp4Bytes = 0;
+      mp4Recorder.ondataavailable = (e) => {
+        if (!e.data || !e.data.size) return;
+        mp4Chunks.push(e.data);
+        mp4Bytes += e.data.size;
+        // Hard cap: close the mp4 before it can cross 10 MB (webm keeps going)
+        if (mp4Bytes >= MP4_MAX_BYTES && mp4Recorder && mp4Recorder.state === "recording") {
+          console.warn("[recorder] mp4 reached the 10 MB share cap — closing it (webm continues)");
+          mp4Recorder.stop();
+        }
+      };
       mp4Recorder.onstop = saveMp4;
       mp4Recorder.start(250);
+      console.log(`[recorder] mp4 companion: ${mp4Canvas.width}x${mp4Canvas.height}@30, ~${Math.round(videoBps / 1000)}kbps video`);
     } catch (e) {
       mp4Recorder = null;
+      mp4Ctx = null;
       console.warn("[recorder] mp4 recorder failed, webm only:", e);
     }
   } else {
@@ -226,6 +257,13 @@ function saveMp4() {
 
 export function toggleRecording(canvas, fps) {
   if (recording) stop(); else start(canvas, fps);
+}
+
+// Called from the render loop right after render (fresh WebGL buffer):
+// mirrors the game canvas into the small mp4 canvas while recording.
+export function updateRecorderStreams(canvas) {
+  if (!recording || !mp4Ctx || !mp4Recorder || mp4Recorder.state !== "recording") return;
+  mp4Ctx.drawImage(canvas, 0, 0, mp4Canvas.width, mp4Canvas.height);
 }
 
 export function startRecording(canvas, fps) { start(canvas, fps || 60); }
