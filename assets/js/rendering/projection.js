@@ -162,6 +162,9 @@ function preloadProjectionTextures() {
         imagePath + imageName,
         (texture) => {
           texture.colorSpace = THREE.SRGBColorSpace;
+          // Flat plane viewed at a grazing angle — anisotropy stops the
+          // projected image smearing toward the far edge.
+          if (_renderer) texture.anisotropy = _renderer.capabilities.getMaxAnisotropy();
           projectionTextures[state] = texture;
           if (_STATE.gameState === state) {
             updateProjectionForState(state);
@@ -266,6 +269,7 @@ export function loadProjectionImage(state, imageName) {
     "assets/images/" + imageName,
     (texture) => {
       texture.colorSpace = THREE.SRGBColorSpace;
+      if (_renderer) texture.anisotropy = _renderer.capabilities.getMaxAnisotropy();
       projectionTextures[state] = texture;
       if (_STATE.gameState === state) {
         updateProjectionForState(state);

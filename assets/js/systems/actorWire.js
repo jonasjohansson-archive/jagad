@@ -8,6 +8,14 @@ let _scene = null;
 let _settings = null;
 let _STATE = null;
 let _renderer = null;
+let _faceCamera = null; // when set, head billboards turn to face this camera (FPS/orbit capture)
+
+// In capture views the heads otherwise sit flat on the ground (edge-on/invisible
+// from a first-person angle). Pass a camera to billboard them toward it; null
+// restores the flat-on-facade orientation used for the top-down projection.
+export function setBillboardFaceCamera(camera) {
+  _faceCamera = camera || null;
+}
 
 export function initActorWire(scene, settings, STATE, renderer) {
   _scene = scene;
@@ -195,8 +203,16 @@ export class ActorWire {
       this.currentTextureIndex = 0;
 
       const facePath = PATHS.images.faces;
+      // Faces are color maps viewed on a flat plane at grazing angles: tag as
+      // sRGB (else they render gamma-wrong) and enable anisotropy (else they
+      // smear/shimmer with distance). Set before GPU upload.
+      const prepFace = (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = _renderer.capabilities.getMaxAnisotropy();
+      };
       textureLoader.load(facePath + pair[0],
         (texture) => {
+          prepFace(texture);
           this.textures[0] = texture;
           this.billboard.material.map = texture;
           this.billboard.material.needsUpdate = true;
@@ -208,6 +224,7 @@ export class ActorWire {
       );
       textureLoader.load(facePath + pair[1],
         (texture) => {
+          prepFace(texture);
           this.textures[1] = texture;
           _renderer.initTexture(texture);
         }
@@ -397,6 +414,14 @@ export class ActorWire {
     }
 
     this.billboard.position.set(billboardX, actorPos.y + totalHeight, billboardZ);
+
+    // Orientation: face the capture camera (so faces read in first-person /
+    // orbit views), else lie flat for the top-down facade projection.
+    if (_faceCamera) {
+      this.billboard.lookAt(_faceCamera.position);
+    } else {
+      this.billboard.rotation.set(-Math.PI / 2, 0, 0);
+    }
 
     // Update billboard light position and settings
     // Use intensity=0 instead of visible=false to avoid shader recompilation

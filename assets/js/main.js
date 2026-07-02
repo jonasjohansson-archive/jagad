@@ -13,8 +13,8 @@ import { createBoostState, triggerBoost, updateBoosts, getBoostMultiplier, reset
 import { isMobileDevice, saveDesktopSettings, applyMobileOverrides, restoreDesktopSettings, initTouchInput } from "./game/mobile.js?v=4";
 import { checkCollision } from "./game/collision.js?v=149";
 import { getServerAddress, connectToServer, sendServerEvent, postHighScore } from "./game/server.js?v=149";
-import { initAudio, playAudio, stopAudio, setAudioTrack, initSFX, playSFX, playHelicopterSound, stopHelicopterSound, unlockAudio, getAudioElement } from "./systems/audio.js?v=149";
-import { initPostProcessing, updatePostProcessing } from "./rendering/postprocessing.js?v=149";
+import { initAudio, playAudio, stopAudio, setAudioTrack, initSFX, playSFX, playHelicopterSound, stopHelicopterSound, unlockAudio, getAudioElement } from "./systems/audio.js?v=151";
+import { initPostProcessing, updatePostProcessing } from "./rendering/postprocessing.js?v=150";
 import { loadHelicopter, updateHelicopter, rebuildHelicopterCone, updateHelicopterColor, updateHelicopterScale, updateHelicopterBoundsHelper, getHelicopter, getHelicopterLightHelper, getHelicopterBoundsHelper, setHelicopterLightHelper } from "./systems/helicopter.js?v=149";
 import { setupSearchlights, updateSearchlights, toggleSearchlightHelpers } from "./systems/searchlights.js?v=149";
 import { updateLamps, updateCarsAudio, updateTextBPMPulse, updateAllEmissives } from "./systems/emissives.js?v=149";
@@ -23,10 +23,12 @@ import { setupGlassMeshes, updateGlassCanvas, updateGlassPosition, updateGlassMa
 import { initTemplateVars, applyStartingText, applyPlayingText, applyHighScoreText, applyGameOverText } from "./game/templateVars.js?v=149";
 import { initProjection, initProjectionPlane, updateProjectionForState, loadProjectionImage, updateProjectionPump, handleProjectionStateChange, applyProjectionMaterial } from "./rendering/projection.js?v=149";
 import { initPathMovement, initActorOnPath, updateFugitiveMovementPath, updateChaserMovementPath } from "./game/pathMovement.js?v=149";
-import { initActorWire, ActorWire, updateWireBillboards } from "./systems/actorWire.js?v=149";
+import { initActorWire, ActorWire, updateWireBillboards, setBillboardFaceCamera } from "./systems/actorWire.js?v=150";
 import { triggerShake, updateShake } from "./systems/cameraShake.js";
 import { setupLights, toneMappingOptions } from "./rendering/lights.js?v=149";
-import { initRecorder, flushSnapshot } from "./systems/recorder.js?v=1";
+import { initRecorder, flushSnapshot, startRecording, stopRecording, isRecording, updateRecorderStreams } from "./systems/recorder.js?v=6";
+import { initAutoplay, setAutoplayEnabled, isAutoplayEnabled, getAutoplayDirection, updateAutoplay, setManualChaser } from "./systems/autoplay.js?v=2";
+import { initCaptureCamera, setOrbitEnabled, isOrbitEnabled, updateCaptureCamera, saveView, recallView, listViews, setCameraView, getCameraView, setCarMode, isCarCamEnabled, isHeliCamEnabled, updateCarCam, updateHeliCam, nudgeCarHeight } from "./rendering/captureCamera.js?v=4";
 
 // lil-gui loaded via script tag in index.html
 const GUI = window.lil.GUI;
@@ -111,7 +113,7 @@ const loadingProgress = {
 
   // WebGL Renderer
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setPixelRatio(window.devicePixelRatio * (defaultSettings.renderScale || 1));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * (defaultSettings.renderScale || 1));
   renderer.setClearColor(0x191928, 0);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -182,7 +184,7 @@ const loadingProgress = {
   if (isFacadeMode) {
     settings.exposure = 0.67;
     settings.renderScale = 1.5;
-    renderer.setPixelRatio(window.devicePixelRatio * settings.renderScale);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.renderScale);
     renderer.toneMappingExposure = settings.exposure;
   }
 
@@ -508,6 +510,11 @@ const loadingProgress = {
 
   function getChaserInputDirection(chaserIndex) {
     if (chaserIndex >= CHASER_CONTROLS.length) return { x: 0, z: 0, hasInput: false };
+    // Self-play AI takes over the input seam when enabled (capture mode)
+    if (isAutoplayEnabled()) {
+      const ai = getAutoplayDirection(chaserIndex);
+      if (ai) return ai;
+    }
     const ctrl = CHASER_CONTROLS[chaserIndex];
 
     let dx = 0;
@@ -592,8 +599,9 @@ const loadingProgress = {
     sendServerEvent({ type: "chaserSelected", chaserIndex, color: chaserColor, playerName: `Player ${chaserIndex + 1}` });
 
     // Check if this is the first ready chaser - start countdown
+    // (suppressed during a staged self-play join so all cars pop in first)
     const readyCount = chasers.filter(c => c.ready).length;
-    if (readyCount === 1) {
+    if (readyCount === 1 && !STATE.suppressCountdownOnReady) {
       setGameState("STARTING");
     }
   }
@@ -791,6 +799,11 @@ const loadingProgress = {
         break;
 
       case "GAME_OVER":
+        // End of a self-played capture sequence: stop the AI and finish the recording
+        if (isAutoplayEnabled()) {
+          setAutoplayEnabled(false);
+          if (isRecording()) setTimeout(() => stopRecording(), 1500); // let the win/lose beat land
+        }
         sendServerEvent({ type: "gameEnd", score: STATE.playerScore, capturedCount: STATE.capturedCount, gameTime: Math.round(90 - (STATE.gameTimerRemaining || 0)), allCaught: STATE.capturedCount >= fugitives.length });
         stopHelicopterSound(); // Stop helicopter loop
         STATE.gameOver = true;
@@ -977,14 +990,18 @@ const loadingProgress = {
         perspCamera.position.copy(src.getWorldPosition(new THREE.Vector3()));
         perspCamera.quaternion.copy(src.getWorldQuaternion(new THREE.Quaternion()));
         perspCamera.fov = src.fov;
-        perspCamera.near = src.near;
-        perspCamera.far = src.far;
+        // Clamp the GLB camera's near/far to the board scale — Blender exports
+        // commonly ship 0.1/1000+ which wrecks z-buffer precision here.
+        const clampedNear = Math.max(src.near, 1);
+        const clampedFar = Math.min(src.far, 400);
+        perspCamera.near = clampedNear;
+        perspCamera.far = clampedFar;
         perspCamera.aspect = window.innerWidth / window.innerHeight;
         perspCamera.updateProjectionMatrix();
         // Update settings to reflect GLB values
         settings.perspFov = src.fov;
-        settings.perspNear = src.near;
-        settings.perspFar = src.far;
+        settings.perspNear = clampedNear;
+        settings.perspFar = clampedFar;
         settings.perspPosX = perspCamera.position.x;
         settings.perspPosY = perspCamera.position.y;
         settings.perspPosZ = perspCamera.position.z;
@@ -1019,9 +1036,9 @@ const loadingProgress = {
 
       // 2. Apply runtime effects that need API calls
       // Render scale
-      renderer.setPixelRatio(window.devicePixelRatio * settings.renderScale);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.renderScale);
       if (composer) {
-        composer.setPixelRatio(window.devicePixelRatio * settings.renderScale);
+        composer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.renderScale);
         composer.setSize(window.innerWidth, window.innerHeight);
       }
 
@@ -1082,9 +1099,9 @@ const loadingProgress = {
 
       // 2. Re-apply restored values to runtime objects
       // Render scale
-      renderer.setPixelRatio(window.devicePixelRatio * settings.renderScale);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.renderScale);
       if (composer) {
-        composer.setPixelRatio(window.devicePixelRatio * settings.renderScale);
+        composer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.renderScale);
         composer.setSize(window.innerWidth, window.innerHeight);
       }
 
@@ -1280,7 +1297,7 @@ const loadingProgress = {
     const perfFolder = mobileFolder.addFolder("Performance");
 
     perfFolder.add(settings, "renderScale", 0.5, 2, 0.25).name("Render Scale").listen().onChange((v) => {
-      const dpr = window.devicePixelRatio;
+      const dpr = Math.min(window.devicePixelRatio, 2);
       renderer.setPixelRatio(dpr * v);
       if (composer) {
         composer.setPixelRatio(dpr * v);
@@ -1775,9 +1792,9 @@ const loadingProgress = {
     cameraFolder.add(settings, "perspPanX", -5, 5, 0.01).name("Pan X").onChange(updatePerspCameraPos);
     cameraFolder.add(settings, "perspPanZ", -5, 5, 0.01).name("Pan Y").onChange(updatePerspCameraPos);
     cameraFolder.add(settings, "renderScale", 0.5, 2, 0.25).name("Render Scale").onChange((v) => {
-      renderer.setPixelRatio(window.devicePixelRatio * v);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * v);
       if (composer) {
-        composer.setPixelRatio(window.devicePixelRatio * v);
+        composer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * v);
         composer.setSize(window.innerWidth, window.innerHeight);
       }
     });
@@ -2466,8 +2483,42 @@ const loadingProgress = {
       renderer.render(scene, camera);
     }
 
+    // Capture tools: keep orbit controls + self-play AI ticking
+    updateCaptureCamera();
+    updateAutoplay(dt);
+    // Car cam: ride the chosen chaser, looking along its travel direction
+    if (isCarCamEnabled()) {
+      const ch = chasers[STATE.carCamIndex || 0];
+      if (ch && ch.mesh) {
+        let fX = 0, fZ = 1;
+        if (ch.currentEdge) {
+          const tx = (ch.currentEdge.x2 - ch.currentEdge.x1) * ch.edgeDir;
+          const tz = (ch.currentEdge.z2 - ch.currentEdge.z1) * ch.edgeDir;
+          const l = Math.hypot(tx, tz);
+          if (l > 0.001) { fX = tx / l; fZ = tz / l; }
+        }
+        updateCarCam(ch.mesh.position, fX, fZ, STATE.horizontalSize);
+      }
+    } else if (isHeliCamEnabled()) {
+      const h = getHelicopter();
+      if (h && h.mesh) {
+        // Forward from the heli's recent motion (it drifts smoothly)
+        const hp = h.mesh.position;
+        const prev = STATE.heliCamPrev || (STATE.heliCamPrev = { x: hp.x, z: hp.z, fx: 0, fz: 1 });
+        const dx = hp.x - prev.x, dz = hp.z - prev.z;
+        const dl = Math.hypot(dx, dz);
+        if (dl > 0.0005) { prev.fx = dx / dl; prev.fz = dz / dl; }
+        prev.x = hp.x; prev.z = hp.z;
+        updateHeliCam(hp, prev.fx, prev.fz, STATE.horizontalSize, STATE.streetY || 0);
+      }
+    }
+    // Heads face the camera in capture views (car/heli cam or orbit), flat otherwise
+    setBillboardFaceCamera((getCameraView() !== "top" || isOrbitEnabled()) ? perspCamera : null);
+
     // Grab a still here (buffer is fresh) if P was pressed
     flushSnapshot(canvas);
+    // Mirror the frame into the downscaled mp4 companion while recording
+    updateRecorderStreams(canvas);
 
     statsPanel.end();
   }
@@ -2846,7 +2897,7 @@ const loadingProgress = {
 
 
     if (foundGlassMeshes.length > 0) {
-      setupGlassMeshes(foundGlassMeshes, settings, STATE);
+      setupGlassMeshes(foundGlassMeshes, settings, STATE, renderer);
       setBeforeRenderCallback(() => applyHighScoreText());
     }
 
@@ -3393,6 +3444,170 @@ const loadingProgress = {
     }
 
     setupCameras(levelCenter, horizontalSize);
+
+    // Capture tools (free-orbit camera + self-play AI), gated behind ?capture
+    initCaptureCamera({ camera: perspCamera, renderer, getLevelCenter });
+    initAutoplay({ STATE, settings, chasers, fugitives, boostStates, triggerBoost, playSFX });
+
+    if (new URLSearchParams(window.location.search).has("capture")) {
+      buildCaptureHUD();
+      // Debug handle for inspection during capture
+      window.__jagadCapture = {
+        chasers, fugitives,
+        state: () => STATE.gameState,
+        autoplay: () => isAutoplayEnabled(),
+        recording: () => isRecording(),
+        play: () => playSequence(),
+        camPos: () => perspCamera.position.toArray().map(n => +n.toFixed(2)),
+      };
+    }
+
+    // Reset to a clean round, mark the chasers ready (starts the countdown),
+    // hand control to the self-play AI, and record the whole sequence.
+    function playSequence() {
+      resetGame();
+      for (const c of chasers) { c.ready = false; c.active = false; }
+      STATE.firstPlayerIndex = -1;
+      setGameState("PRE_GAME");
+      setAutoplayEnabled(true);
+      if (!isRecording()) startRecording(renderer.domElement, 60);
+
+      // Cars pop in one at a time, 0.5s apart, then the countdown starts.
+      const n = Math.min(chasers.length, 4);
+      const STEP = 500;
+      STATE.suppressCountdownOnReady = true;
+      for (let i = 0; i < n; i++) setTimeout(() => markChaserReady(i), i * STEP);
+      setTimeout(() => {
+        STATE.suppressCountdownOnReady = false;
+        setGameState("STARTING");
+        // Failsafe: STARTING->PLAYING normally fires on the countdown video's
+        // 'ended' event; force it if that doesn't arrive so we never stall.
+        const countdownMs = (settings.countdownDuration || 4) * 1000 + 1500;
+        setTimeout(() => { if (STATE.gameState === "STARTING") setGameState("PLAYING"); }, countdownMs);
+      }, n * STEP);
+    }
+
+    function buildCaptureHUD() {
+      const panel = document.createElement("div");
+      panel.style.cssText = [
+        "position:fixed", "top:14px", "left:16px", "z-index:99999",
+        "display:flex", "flex-direction:column", "gap:8px",
+        "font:600 13px/1 system-ui,sans-serif", "pointer-events:auto",
+      ].join(";");
+      const mkBtn = (label) => {
+        const b = document.createElement("button");
+        b.textContent = label;
+        b.style.cssText = [
+          "padding:9px 13px", "border:0", "border-radius:999px", "cursor:pointer",
+          "background:rgba(0,0,0,0.6)", "color:#fff", "font:inherit",
+          "backdrop-filter:blur(4px)", "-webkit-backdrop-filter:blur(4px)", "text-align:left",
+        ].join(";");
+        return b;
+      };
+
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:8px";
+
+      const playBtn = mkBtn("▶ Play sequence");
+      playBtn.addEventListener("click", () => { playSequence(); playBtn.blur(); });
+
+      const orbitBtn = mkBtn("🎥 Orbit: off");
+      orbitBtn.addEventListener("click", () => {
+        const on = !isOrbitEnabled();
+        if (on) { switchCamera("perspective"); }
+        setOrbitEnabled(on); // enabling orbit also drops any follow cam back to top
+        if (on) for (const k in viewBtns) viewBtns[k].style.background = k === "top" ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)";
+        orbitBtn.textContent = on ? "🎥 Orbit: on" : "🎥 Orbit: off";
+        orbitBtn.style.background = on ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)";
+        orbitBtn.blur();
+      });
+
+      const saveBtn = mkBtn("＋ Save view");
+      const chips = document.createElement("div");
+      chips.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;max-width:260px";
+      const refreshChips = () => {
+        chips.innerHTML = "";
+        listViews().forEach((_, i) => {
+          const c = mkBtn(`View ${i + 1}`);
+          c.style.padding = "6px 10px";
+          c.addEventListener("click", () => { switchCamera("perspective"); setOrbitEnabled(true); recallView(i); orbitBtn.textContent = "🎥 Orbit: on"; orbitBtn.style.background = "rgba(80,140,255,0.85)"; c.blur(); });
+          chips.appendChild(c);
+        });
+      };
+      saveBtn.addEventListener("click", () => { saveView(); refreshChips(); saveBtn.blur(); });
+      refreshChips();
+
+      row.append(playBtn, orbitBtn, saveBtn);
+
+      // View switcher: Top / Car / Heli
+      STATE.carCamIndex = STATE.carCamIndex || 0;
+      const carRow = document.createElement("div");
+      carRow.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap";
+      const ACTIVE = "rgba(80,140,255,0.85)", IDLE = "rgba(0,0,0,0.6)";
+      const viewBtns = {};
+      const setView = (m) => {
+        if (m !== "top") switchCamera("perspective");
+        setCameraView(m);
+        orbitBtn.textContent = "🎥 Orbit: off";
+        orbitBtn.style.background = IDLE;
+        for (const k in viewBtns) viewBtns[k].style.background = k === m ? ACTIVE : IDLE;
+      };
+      for (const [key, label] of [["top", "🗺 Top"], ["car", "🚗 Car"], ["heli", "🚁 Heli"]]) {
+        const vb = mkBtn(label);
+        vb.style.padding = "8px 11px";
+        vb.style.background = key === "top" ? ACTIVE : IDLE;
+        vb.addEventListener("click", () => { setView(key); vb.blur(); });
+        viewBtns[key] = vb;
+      }
+      const modeBtn = mkBtn("Onboard");
+      modeBtn.style.padding = "6px 10px";
+      let carMode = "onboard";
+      modeBtn.addEventListener("click", () => {
+        carMode = carMode === "onboard" ? "chase" : "onboard";
+        setCarMode(carMode);
+        modeBtn.textContent = carMode === "onboard" ? "Onboard" : "Chase";
+        modeBtn.blur();
+      });
+      const downBtn = mkBtn("▼");
+      const upBtn = mkBtn("▲");
+      downBtn.style.padding = upBtn.style.padding = "6px 9px";
+      downBtn.title = "Lower camera"; upBtn.title = "Raise camera";
+      downBtn.addEventListener("click", () => { nudgeCarHeight(-0.005); downBtn.blur(); });
+      upBtn.addEventListener("click", () => { nudgeCarHeight(0.005); upBtn.blur(); });
+      const carPick = document.createElement("div");
+      carPick.style.cssText = "display:flex;gap:4px";
+      const CONTROLS = ["WASD", "TFGH", "IJKL", "Arrows"];
+      let driveManual = false;
+      const driveBtn = mkBtn("🎮 Drive this car: off");
+      const hint = document.createElement("div");
+      hint.style.cssText = "color:#fff;opacity:0.8;font:500 11px/1.4 system-ui;max-width:280px";
+      const refreshHint = () => {
+        hint.textContent = driveManual ? `You drive C${STATE.carCamIndex + 1} with ${CONTROLS[STATE.carCamIndex]} (boost = ${["E","Y","O","Enter"][STATE.carCamIndex]}); AI drives the rest.` : "";
+      };
+      driveBtn.addEventListener("click", () => {
+        driveManual = !driveManual;
+        setManualChaser(driveManual ? STATE.carCamIndex : null);
+        driveBtn.textContent = driveManual ? "🎮 Drive this car: on" : "🎮 Drive this car: off";
+        driveBtn.style.background = driveManual ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)";
+        refreshHint(); driveBtn.blur();
+      });
+      for (let i = 0; i < 4; i++) {
+        const cb = mkBtn(`C${i + 1}`);
+        cb.style.padding = "6px 9px";
+        cb.style.background = i === STATE.carCamIndex ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)";
+        cb.addEventListener("click", () => {
+          STATE.carCamIndex = i;
+          if (driveManual) setManualChaser(i);
+          [...carPick.children].forEach((c, j) => c.style.background = j === i ? "rgba(80,140,255,0.85)" : "rgba(0,0,0,0.6)");
+          refreshHint(); cb.blur();
+        });
+        carPick.appendChild(cb);
+      }
+      carRow.append(viewBtns.top, viewBtns.car, viewBtns.heli, modeBtn, downBtn, upBtn, carPick, driveBtn);
+
+      panel.append(row, carRow, hint, chips);
+      document.body.appendChild(panel);
+    }
 
     // If GLB contains cameras, add them to the GUI dropdown and use MainCamera if found
     if (glbCameras.length > 0) {

@@ -42,8 +42,11 @@ export const defaultSettings = {
   cameraType: "perspective",
   orthoZoom: 1,
   perspFov: 13,
-  perspNear: 0.1,
-  perspFar: 5000,
+  // Tight near/far for the board scale (camera ~33u up, level fits within ~80u).
+  // 1:400 keeps z-buffer precision high vs the old 0.1:5000 (50000:1), which
+  // caused z-fighting on coplanar road/ground geometry.
+  perspNear: 1,
+  perspFar: 400,
   renderScale: 1,
   perspPosX: 0.04,
   perspPosY: 33,
@@ -78,9 +81,12 @@ export const defaultSettings = {
   buildingOffsetZ: 0.65,
   buildingOpacity: 1,
   bloomEnabled: true,
-  bloomThreshold: 1,
-  bloomStrength: 0.4,
-  bloomRadius: 0,
+  // Softer, wider neon glow. radius 0 gave an almost-invisible halo; threshold 1
+  // let only the brightest emissives (windows) bloom. Lower threshold brings
+  // roads/paths into a soft glow; radius spreads it. All tunable in the GUI.
+  bloomThreshold: 0.85,
+  bloomStrength: 0.5,
+  bloomRadius: 0.4,
   // Pixelation
   pixelationEnabled: false,
   pixelationSize: 4,
@@ -90,7 +96,9 @@ export const defaultSettings = {
   vignetteEnabled: false,
   vignetteIntensity: 1,
   colorGradingEnabled: true,
-  colorGradingSaturation: 1.75,
+  // Grading now runs after tone mapping (display-referred sRGB), where saturation
+  // reads stronger, so this is dialled back from 1.75.
+  colorGradingSaturation: 1.3,
   colorGradingContrast: 1,
   colorGradingBrightness: 1,
   colorGradingGainR: 1,

@@ -87,6 +87,24 @@ function getTubeCache(STATE, settings) {
 // Shared flash + particle geometry (created once, reused)
 let _sharedFlashGeo = null;
 
+// Soft radial-gradient sprite shared by all particle bursts — turns the default
+// hard-edged PointsMaterial squares into soft additive sparks. Built once.
+let _particleSprite = null;
+function getParticleSprite() {
+  if (_particleSprite) return _particleSprite;
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const ctx = c.getContext("2d");
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.4, "rgba(255,255,255,0.5)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  _particleSprite = new THREE.CanvasTexture(c);
+  return _particleSprite;
+}
+
 export function createCaptureEffect(position, chaserColor, billboard, scene, settings, STATE) {
   if (!settings.pulseWaveEnabled) return;
 
@@ -194,7 +212,8 @@ export function createCaptureEffect(position, chaserColor, billboard, scene, set
 
   const particleMat = new THREE.PointsMaterial({
     size: 0.25, vertexColors: true, transparent: true, opacity: 1.0,
-    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    map: getParticleSprite()
   });
 
   const particles = new THREE.Points(particleGeo, particleMat);

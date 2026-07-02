@@ -45,10 +45,40 @@ function setupAudioAnalyser() {
   }
 }
 
+// Route a plain HTML Audio element through the context so it reaches both the
+// speakers and the recording tap. Each element can only be wired once.
+const routedElements = new Set();
+const routedSources = [];
+function routeElementForRecording(el) {
+  if (!el || !audioContext || routedElements.has(el)) return;
+  try {
+    const src = audioContext.createMediaElementSource(el);
+    src.connect(audioContext.destination);
+    if (recordDest) src.connect(recordDest);
+    routedElements.add(el);
+    routedSources.push(src);
+  } catch (e) {
+    // Already connected elsewhere (e.g. the music element via the analyser)
+    routedElements.add(el);
+  }
+}
+
+// Pull the SFX/helicopter elements into the graph (music is handled by the
+// analyser path). Safe to call repeatedly.
+function routeSFXForRecording() {
+  routeElementForRecording(helicopterAudio);
+  for (const name in preloadedSFX) routeElementForRecording(preloadedSFX[name]);
+}
+
 // Lazily create (once) a MediaStreamDestination on the music context and
 // return its stream. The recorder calls this to mix game audio into the file.
 export function getRecordingAudioStream() {
+  // The recorder is invoked from a user gesture (click/keypress), so we can
+  // create/unlock the context here — otherwise recording started by the very
+  // first click (e.g. "Play sequence") would come out silent.
+  if (!audioContext) unlockAudio();
   if (!audioContext) return null;
+  if (audioContext.state === "suspended") audioContext.resume().catch(() => {});
   if (!recordDest) {
     try {
       recordDest = audioContext.createMediaStreamDestination();
@@ -57,11 +87,17 @@ export function getRecordingAudioStream() {
       for (const key in tonePlayers) {
         try { tonePlayers[key].connect(recordDest); } catch (e) {}
       }
+      for (const src of routedSources) {
+        try { src.connect(recordDest); } catch (e) {}
+      }
     } catch (e) {
       console.warn("Failed to create recording tap:", e);
       return null;
     }
   }
+  // SFX (countdown, capture, helicopter…) are plain <audio> elements that
+  // bypass the graph unless routed — pull them in so the file gets the full mix.
+  routeSFXForRecording();
   return recordDest.stream;
 }
 
